@@ -1,6 +1,5 @@
 import React from 'react';
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
-import Homepage from './pages/Homepage';
+import { createBrowserRouter, replace, RouterProvider } from 'react-router-dom';
 import LocationTracker from './pages/LocationTracker'; // Assuming you have this component
 import ParentDashboard from './pages/ParentDashboard';
 import Login from './pages/Login'; // Assuming you have this component
@@ -11,7 +10,7 @@ import Signup from './pages/Signup'; // Assuming you have this component
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <Homepage />
+    element: <Navigate to="/parent-dashboard" replace/>
   },
   {
     path: '/login',
