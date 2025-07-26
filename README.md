@@ -106,7 +106,9 @@ npm install
 # Create a .env file and add your environment variables
 npm run dev
 
-### Future Enhancements
+---
+
+Future Enhancements
 - SOS alerts with wearables
 - Real-time push notifications
 - In-app chat system between parent and child
