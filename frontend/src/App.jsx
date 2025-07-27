@@ -1,16 +1,17 @@
 import React from 'react';
-import { createBrowserRouter, replace, RouterProvider, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import LocationTracker from './pages/LocationTracker'; // Assuming you have this component
 import ParentDashboard from './pages/ParentDashboard';
 import Login from './pages/Login'; // Assuming you have this component
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute'; // Assuming you have this component
 import Signup from './pages/Signup'; // Assuming you have this component
+import HomePage from './pages/Homepage';
 
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <Navigate to="/parent-dashboard" replace/>
+    element: <HomePage />
   },
   {
     path: '/login',
