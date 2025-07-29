@@ -47,7 +47,7 @@ const defaultCenter = {
   lng: 77.4126,
 };
 
-const LiveMap = ({ activeChild }) => {
+const LiveMap = ({ activeChild, setParentChildData }) => {
   const { user } = useAuth();
   const [childData, setChildData] = useState(null); // State to store the active child's live data
   const [loadingChildData, setLoadingChildData] = useState(false);
@@ -91,6 +91,7 @@ const LiveMap = ({ activeChild }) => {
         setChildData(null);
         setLoadingChildData(false);
         setChildDataError(null);
+        setParentChildData(null); // Clear parent data as well
         return;
       }
 
@@ -123,6 +124,14 @@ const LiveMap = ({ activeChild }) => {
         // Assuming data.locationData contains: { id, name, status, location, lastUpdated, coordinates: { lat, lng } }
         setChildData(data.locationData);
 
+        if (data.locationData) {
+          setParentChildData(data.locationData);
+          console.log("LiveMap: Passed data to ParentDashboard:", data.locationData); // Debugging
+        } else {
+          setParentChildData(null);
+          console.log("LiveMap: No locationData received, passing null to ParentDashboard."); // Debugging
+        }
+
         // If the map is loaded and new coordinates are available, pan the map to the new location
         if (map && data.locationData?.coordinates) {
           map.panTo(data.locationData.coordinates);
@@ -145,7 +154,7 @@ const LiveMap = ({ activeChild }) => {
     // Clean up the interval when the component unmounts or dependencies change
     return () => clearInterval(intervalId);
 
-  }, [activeChild, user, map]); // Dependencies: re-run effect if these values change
+  }, [activeChild, user, map, setParentChildData]); // Dependencies: re-run effect if these values change
 
   // Function to handle map zoom in
   const handleZoomIn = () => {

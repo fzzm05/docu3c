@@ -1,11 +1,14 @@
 // childrenSidebar.jsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { UserPlus, Clock, MapPin } from 'lucide-react';
 import { useAuth } from '../context/AuthContext'; // Assuming you have a custom hook for authentication
 import axios, { formToJSON } from 'axios';
+import { io } from 'socket.io-client';
 
 // Assuming VITE_API_URL is defined in your .env.local or .env file
 const API_URL = import.meta.env.VITE_API_URL;
+// Initialize socket connection (if needed, otherwise remove this line)
+const SOCKET_IO_SERVER_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // Mock data for children list (will be replaced by actual data from backend)
 const mockChildren = [
@@ -99,20 +102,6 @@ const getStatusText = (status) => {
   }
 };
 
-// Helper function to get emoji for status
-const getStatusEmoji = (status) => {
-  switch (status) {
-    case 'safe':
-      return '🟢';
-    case 'warning':
-      return '🟡';
-    case 'danger':
-      return '🔴';
-    default:
-      return '⚪';
-  }
-};
-
 // --- New SkeletonLoader Component ---
 const SkeletonLoader = () => {
   return (
@@ -171,6 +160,8 @@ const ChildrenSidebar = ({ activeChild, onChildSelect }) => {
   const RATE_LIMIT_MAX = 5; // Maximum allowed requests
   const RATE_LIMIT_WINDOW_MS = 60 * 1000; // Time window for rate limit (1 minute)
 
+  const socketRef = useRef(null);
+
   // Handler for the initial "Add Children" button click in the sidebar
   const handleAddChildrenClick = () => {
     // Reset all popup-related states when opening the popup
@@ -183,72 +174,120 @@ const ChildrenSidebar = ({ activeChild, onChildSelect }) => {
     setShowPopup(true); // Show the popup
   };
 
-  // useEffect to fetch children data from the backend
-  useEffect(() => {
-    console.log(user);
-    const fetchChildren = async () => {
-      try {
-        setLoadingChildren(true);
-        setChildrenError(null); // Clear any previous errors
+  // Memoized fetch function for initial load (and potential re-sync)
+  const fetchChildren = useCallback(async () => {
+    if (!user || !user.id) {
+      console.warn("User ID not available, skipping children data fetch.");
+      setLoadingChildren(false);
+      return;
+    }
 
-        const parentId = user.id; // Assuming user object has an id field
-        console.log("Fetching data for parentId:", parentId); // Debugging log to check parentId
+    try {
+      setLoadingChildren(true);
+      setChildrenError(null);
 
-        // --- Changes start here for using native fetch ---
-        // Construct the URL with query parameters
-        const url = new URL(`${API_URL}/data/parent-dashboard`);
-        url.searchParams.append('parentId', parentId);
+      const parentId = user.id;
+      const url = new URL(`${API_URL}/data/parent-dashboard`);
+      url.searchParams.append('parentId', parentId);
 
-        const response = await fetch(url.toString(), {
-          method: 'GET', // Default for fetch, but explicit is good
-          credentials: 'include' // Equivalent to axios' withCredentials: true
-          // Add headers if needed, e.g.:
-          // headers: {
-          //   'Content-Type': 'application/json',
-          //   'Authorization': `Bearer ${yourAuthToken}` // If using token-based auth
-          // }
-        });
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        credentials: 'include'
+      });
 
-        // Check if the response was successful (HTTP status 2xx)
-        if (!response.ok) {
-          let errorData;
-          try {
-            errorData = await response.json(); // Try to parse error message from body
-          } catch (e) {
-            errorData = { message: `HTTP error! status: ${response.status}` }; // Fallback
-          }
-          throw new Error(errorData.error || errorData.message || `Failed with status: ${response.status}`);
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          errorData = { message: `HTTP error! status: ${response.status}` };
         }
+        throw new Error(errorData.error || errorData.message || `Failed with status: ${response.status}`);
+      }
 
-        const data = await response.json(); // Parse the JSON response body
-        console.log("Fetched children data:", data); // Debugging log
-        setChildren(data.childrenData); // Assuming your API returns { message: "...", childrenData: [...] }
-        // --- Changes end here ---
+      const data = await response.json();
+      console.log("Initial children data fetched:", data.childrenData);
+      setChildren(data.childrenData || []);
+    } catch (err) {
+      console.error("Error fetching children data:", err);
+      setChildrenError(`Failed to load children data: ${err.message}. Please try again later.`);
+    } finally {
+      setLoadingChildren(false);
+    }
+  }, [user]);
 
-      } catch (err) {
-        console.error("Error fetching children data:", err);
-        setChildrenError(`Failed to load children data: ${err.message}. Please try again later.`);
-        // Optionally, if the error is due to no children, you might want to keep mockChildren
-        // setChildren(mockChildren);
-      } finally {
-        setLoadingChildren(false);
+  // --- useEffect for Socket.IO and Initial Fetch ---
+  useEffect(() => {
+    if (!user || !user.id) {
+      setLoadingChildren(false);
+      return;
+    }
+
+    // Initialize Socket.IO client, passing parentId for room joining on server
+    socketRef.current = io(SOCKET_IO_SERVER_URL, {
+        query: { parentId: user.id },
+        withCredentials: true // Important for session-based auth if using it for Socket.IO as well
+    });
+
+    socketRef.current.on('connect', () => {
+      console.log('Socket.IO connected for parent:', user.id);
+      // You could also emit a 'joinRoom' event here if not using query params
+    });
+
+    socketRef.current.on('disconnect', (reason) => {
+      console.log('Socket.IO disconnected:', reason);
+    });
+
+    socketRef.current.on('connect_error', (error) => {
+      console.error('Socket.IO connection error:', error.message);
+      setChildrenError((prev) => prev ? prev + '; Socket connection error.' : 'Socket connection error.');
+    });
+
+    // Listen for 'newChildAdded' event
+    socketRef.current.on('newChildAdded', (newChild) => {
+      console.log('Received new child from server via Socket.IO:', newChild);
+      setChildren(prevChildren => {
+        // Prevent duplicates if initial fetch and socket event race
+        if (!prevChildren.some(c => c.id === newChild.id)) {
+            return [...prevChildren, newChild];
+        }
+        return prevChildren;
+      });
+      setShowPopup(false);
+    });
+
+    // --- NEW: Listen for 'newChildAdded' event ---
+    socketRef.current.on('newChildAdded', (newChild) => {
+      console.log('Received new child from server via Socket.IO:', newChild);
+      setChildren(prevChildren => {
+        // Only add if not already present to prevent duplicates
+        if (!prevChildren.some(c => c.id === newChild.id)) {
+            return [...prevChildren, newChild];
+        }
+        return prevChildren;
+      });
+    });
+
+    // --- NEW: Listen for 'childUpdated' event ---
+    socketRef.current.on('childUpdated', (updatedChild) => {
+        console.log('Received child update from server via Socket.IO:', updatedChild);
+        setChildren(prevChildren =>
+            prevChildren.map(child =>
+                child.id === updatedChild.id ? { ...child, ...updatedChild } : child
+            )
+        );
+    });
+
+    // Initial fetch of all children when the component mounts
+    fetchChildren();
+
+    // Clean up Socket.IO connection on component unmount
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
       }
     };
-
-    // Ensure user.id is available before fetching
-    if (user && user.id) {
-        fetchChildren(); // Initial fetch when component mounts
-
-        // Set up interval to refresh data periodically (e.g., every 5 seconds)
-        const intervalId = setInterval(fetchChildren, 5000);
-
-        // Clean up the interval when the component unmounts
-        return () => clearInterval(intervalId);
-    } else {
-        console.warn("User ID not available, skipping initial children data fetch.");
-        setLoadingChildren(false); // Ensure loading state is reset
-    }
-}, [user]); // Empty dependency array means this effect runs once on mount and cleans up on unmount
+  }, [user, fetchChildren]);
 
   // Handler for the "Show Code" button click within the popup
   const handleShowCode = async () => {
@@ -340,7 +379,7 @@ const ChildrenSidebar = ({ activeChild, onChildSelect }) => {
   };
 
   return (
-    <div className="bg-card border-r border-neutral-200 flex flex-col" style={{ height:'92vh', width: 'var(--sidebar-width, 240px)' }}>
+    <div className="bg-card border-r border-neutral-200 flex flex-col" style={{ height:'93vh', width: 'var(--sidebar-width, 240px)' }}>
       {/* Sidebar Header */}
       <div className="p-2 border-b border-neutral-200 border-border">
         <h1 className="text-sm font-semibold text-foreground">My Children</h1>

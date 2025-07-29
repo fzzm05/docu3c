@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Sun, Moon, Settings, User, ChevronDown, Clock, Calendar } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const TopBar = () => {
+const TopBar = ( { onSettingsClick } ) => {
   const { user } = useAuth();
   const [isDark, setIsDark] = useState(false);
   const [currentTime] = useState(new Date().toLocaleTimeString('en-US', {
@@ -64,7 +64,9 @@ const TopBar = () => {
 
         {/* Settings */}
         <button className="p-2 hover:bg-muted rounded-lg transition-colors cursor-pointer hover:bg-neutral-100">
-          <Settings className="w-5 h-5 text-muted-foreground" />
+          <Settings 
+            onClick={onSettingsClick}
+            className="w-5 h-5 text-muted-foreground" />
         </button>
 
         {/* Profile Dropdown */}

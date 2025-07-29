@@ -7,11 +7,16 @@ import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute'; // Assuming you have this component
 import Signup from './pages/Signup'; // Assuming you have this component
 import HomePage from './pages/Homepage';
+import Settings from './components/Settings'
 
 const router = createBrowserRouter([
   {
     path: "/",
     element: <HomePage />
+  },
+  {
+    path: '/settings',
+    element: <Settings />
   },
   {
     path: '/login',

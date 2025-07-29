@@ -1,82 +1,65 @@
+// ParentDashboard.jsx
+
 import { useState, useEffect } from 'react';
 import TopBar from '@/components/TopBar';
 import ChildrenSidebar from '@/components/ChildrenSidebar';
 import LiveMap from '@/components/LiveMap';
 import SafetyAlerts from '@/components/SafetyAlerts';
 import { useAuth } from '../context/AuthContext';
-
-const API_URL = import.meta.env.VITE_API_URL;
+import Settings from '../components/Settings';
 
 const ParentDashboard = () => {
   const { user } = useAuth();
   const [activeChild, setActiveChild] = useState(null);
   const [childData, setChildData] = useState(null);
-  const [loadingChildData, setLoadingChildData] = useState(false);
-  const [childDataError, setChildDataError] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
 
-  // Log when activeChild changes
+  const openSettings = () => setShowSettings(true);
+  const closeSettings = () => setShowSettings(false);
+
   useEffect(() => {
     console.log('ParentDashboard: activeChild changed to', activeChild);
+    // *** ADDED/MODIFIED LOG HERE ***
+    console.log('ParentDashboard: childData (before clear on activeChild change):', childData);
+    setChildData(null); // Clear childData for the new child
   }, [activeChild]);
 
-  // Fetch live location data
+  // *** ADDED LOG HERE to see childData updates from LiveMap ***
   useEffect(() => {
-    let intervalId;
-    const fetchLiveLocation = async () => {
-      if (!activeChild || !user?.id) {
-        console.log('ParentDashboard: No activeChild or user.id, clearing childData');
-        setChildData(null);
-        setLoadingChildData(false);
-        setChildDataError(null);
-        return;
-      }
+    console.log('ParentDashboard: childData updated by LiveMap to:', childData);
+    if (childData && childData.coordinates) {
+        console.log('ParentDashboard: childData coordinates - Lat:', childData.coordinates.lat, 'Lng:', childData.coordinates.lng);
+    }
+  }, [childData]);
 
-      setLoadingChildData(true);
-      setChildDataError(null);
-      console.log('ParentDashboard: Fetching location for childId:', activeChild, 'parentId:', user.id);
-      try {
-        const url = new URL(`${API_URL}/location/child/location`);
-        url.searchParams.append('childId', activeChild);
-        url.searchParams.append('parentId', user.id);
-
-        const response = await fetch(url.toString(), {
-          method: 'GET',
-          credentials: 'include',
-        });
-
-        if (!response.ok) {
-          let errorData;
-          try {
-            errorData = await response.json();
-          } catch (e) {
-            errorData = { message: `HTTP error! status: ${response.status}` };
-          }
-          throw new Error(errorData.error || errorData.message || `Failed to fetch live location with status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('ParentDashboard: Fetched location data:', data);
-        setChildData(data.locationData);
-      } catch (err) {
-        console.error('ParentDashboard: Error fetching live location:', err);
-        setChildDataError(`Failed to load live location: ${err.message}`);
-      } finally {
-        setLoadingChildData(false);
-      }
-    };
-
-    fetchLiveLocation();
-    intervalId = setInterval(fetchLiveLocation, 10000);
-
-    return () => clearInterval(intervalId);
-  }, [activeChild, user]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <TopBar />
+      <TopBar onSettingsClick={openSettings} />
+
+      {showSettings && (
+        <div
+          onClick={closeSettings}
+          className="fixed inset-0 z-50 bg-opacity-30 flex items-center justify-center"
+        >
+          <div
+            className="bg-white rounded-xl shadow-lg relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={closeSettings}
+              className="absolute top-3 right-3 text-gray-500 hover:text-gray-700 text-xl"
+            >
+              ✕
+            </button>
+            <Settings onClose={closeSettings} />
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 flex">
         <ChildrenSidebar activeChild={activeChild} onChildSelect={setActiveChild} />
-        <LiveMap activeChild={activeChild} />
+        <LiveMap activeChild={activeChild} setParentChildData={setChildData} />
         <SafetyAlerts
           activeChild={activeChild}
           currentLatitude={childData?.coordinates?.lat || null}
