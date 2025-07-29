@@ -11,7 +11,7 @@
 - 🚨 **AI-Powered Safety Alerts**: Real-time alerts broadcasted to parent-specific WebSocket rooms (e.g., `parent_<id>`), with dynamic risk detection using novelty detection (Mahalanobis distance model).
 - 🧪 **Advanced Sensor-Fusion**: Extended Kalman Filter (EKF) fuses GPS, WiFi RTT, BLE, and IMU data for enhanced location accuracy; stores raw and fused tracks.
 - 🧠 **Safety Narration Microservice**: ML/LLM-backed narration with structured JSON output (including `risk_level`, `recommended_action`, `nearest_exit`, `priority`) using Gemini function-calling, with preloaded POI/crime/crowd data.
-- ⚙️ **Customizable Settings**: React-based `/settings` page with sliders for "risk sensitivity" and "alert frequency," persisted in a `parent_settings` table.
+- ⚙️ **Customizable Settings**: React-based `/settings` page with sliders for "risk sensitivity" and "alert frequency," persisted in a `parent_cofig_settings` table.
 - 🔒 **Security Compliance**: Adheres to GDPR, COPPA, and data-retention policies, documented in `security_checklist.md`.
 
 ---
