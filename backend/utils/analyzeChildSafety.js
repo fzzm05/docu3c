@@ -1,135 +1,181 @@
-import axios from 'axios';
-import dotenv from 'dotenv';
+// analyzeChildSafety.js
+import env from 'dotenv';
+import { InputContextSchema, SafetyNarrationSchema, SafetyNarrationTool } from '../schemas/safetyPromptSchema.js';
 
-dotenv.config();
+env.config();
 
 const MODEL_NAME = 'gemini-1.5-flash'; // Change to 'gemini-pro' or other model if needed
-const API_KEY = process.env.GEMINI_API_KEY;
 
-function formatIsoToIST(isoDateString) {
-  // 1. Create a Date object from the ISO string.
-  // The Date constructor correctly parses ISO 8601 strings, treating 'Z' as UTC.
-  const date = new Date(isoDateString);
+// Function to analyze child safety using Gemini API
+async function analyzeChildSafety(locationData) {
+  let validatedInput;
+  try {
+      // 1. Validate incoming locationData using Zod
+      validatedInput = InputContextSchema.parse(locationData);
+      console.log('Input location data validated successfully:', validatedInput);
+  } catch (error) {
+      console.error('Input validation error:', error.errors);
+      return JSON.stringify({
+          error: true,
+          message: `Invalid input data: ${error.errors.map(e => e.message).join(', ')}`,
+          data: null,
+      });
+  }
 
-  // 2. Define formatting options for Indian Standard Time (IST).
-  const options = {
-    weekday: 'long',   // e.g., "Saturday"
-    year: 'numeric',   // e.g., "2025"
-    month: 'long',     // e.g., "July"
-    day: 'numeric',    // e.g., "26"
-    hour: 'numeric',   // e.g., "12"
-    minute: 'numeric', // e.g., "42"
-    second: 'numeric', // e.g., "35"
-    hour12: true,      // Use 12-hour clock (AM/PM)
-    timeZone: 'Asia/Kolkata', // Specify the desired time zone (IST)
-    timeZoneName: 'short', // e.g., "IST"
+  // Initialize chat history with a system instruction for structured output
+  // The system instruction is crucial for guiding the model to use the tool.
+  // IMPORTANT: Updated instruction to reflect 'recommended_action' as an array
+  let chatHistory = [
+      {
+          role: "user",
+          parts: [
+              {
+                  text: `You are GuardianSense-LLM, a highly intelligent and proactive child safety analysis system. Your task is to analyze the provided child's location and context data, and then identify potential safety implications of each piece of data (e.g., high crime score, unfamiliar area, high crowd density) and synthesize this information to determine the *overall risk level*. Generate a safety narration using the 'SafetyNarration' tool.
+                  Output ONLY valid JSON that conforms exactly to the "SafetyNarration" schema. Do NOT add markdown, comments, or keys not specified by the tool.
+                  Focus on providing a *concise, actionable alert* for a parent, highlighting *what they need to know and do immediately* based on the inferred risk. Consider the intersection of factors like 'crime_score', 'crowd_density', 'poi_type', and 'is_familiar' to give a nuanced and specific assessment.
+
+                  Ensure 'recommended_action' is an array of strings, providing clear, distinct steps.
+                  Here is the child's current context:
+                  ${JSON.stringify(validatedInput)}`
+              }
+          ]
+      }
+  ];
+
+  const apiKey = process.env.GEMINI_API_KEY; // API key is provided by the Canvas environment at runtime
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+
+  // Construct the payload for the Gemini API call
+  const payload = {
+      contents: chatHistory,
+      tools: [
+          {
+              functionDeclarations: [SafetyNarrationTool]
+          }
+      ],
+      generationConfig: {
+          temperature: 0.4,
+      }
   };
 
-  // 3. Create a DateTimeFormat instance for the desired locale and options.
-  // 'en-IN' is the locale for English in India, which will help with number formatting
-  // and other locale-specific nuances if any.
-  const formatter = new Intl.DateTimeFormat('en-IN', options);
-
-  // 4. Format the date.
-  return formatter.format(date);
-}
-
-// Function to analyze child safety using Gemini API via axios
-async function analyzeChildSafety(latitude, longitude) {
-  // Validate inputs
-  if (typeof latitude !== 'number' || typeof longitude !== 'number' || isNaN(latitude) || isNaN(longitude)) {
-    return JSON.stringify({
-      error: true,
-      message: 'Invalid latitude or longitude.',
-      data: null,
-    });
-  }
+  // Implement a timeout for the fetch request
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15-second timeout
 
   try {
-    // Craft prompt for Gemini API
-    const prompt = `
-      You are a safety analysis system for a child tracking application. Given the coordinates (latitude: ${latitude}, longitude: ${longitude}), determine if the location is safe for a child. Consider factors like known safe areas (e.g., schools, homes), risky areas (e.g., crowded places, remote areas), or hypothetical geofencing rules. Return a JSON object with:
-      - priority: "low", "medium", or "high" (indicating urgency)
-      - description: A brief explanation of the safety status keep it under 50 words
-      - actions: An array of recommended actions (e.g., ["Call Child", "Send Safety Prompt", "Contact Authorities"])
-
-      Example response:
-      {
-        "priority": "low",
-        "description": "The child is in a known safe area, likely a school.",
-        "actions": []
-      }
-    `;
-
-    // Make POST request to Gemini API
-    const response = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`,
-      {
-        contents: [
-          {
-            parts: [
-              {
-                text: prompt,
-              },
-            ],
-          },
-        ],
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    // Extract response text
-    const responseText = response.data.candidates[0].content.parts[0].text;
-
-    // Parse JSON from response
-    let safetyData;
-    try {
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('Invalid JSON response from Gemini.');
-      }
-      safetyData = JSON.parse(jsonMatch[0]);
-      console.log('Safety analysis response:', safetyData);
-    } catch (parseError) {
-      console.error('Error parsing Gemini response:', parseError, 'Response:', responseText);
-      return JSON.stringify({
-        error: true,
-        message: 'Failed to parse safety analysis.',
-        data: null,
+      const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal // Attach the abort signal
       });
-    }
 
-    // Validate response structure
-    if (!safetyData.priority || !safetyData.description || !Array.isArray(safetyData.actions)) {
-      return JSON.stringify({
-        error: true,
-        message: 'Invalid safety analysis response format.',
-        data: null,
-      });
-    }
+      clearTimeout(timeoutId); // Clear the timeout if the request completes in time
 
-    // Return JSON string
-    return JSON.stringify({
-      error: false,
-      data: {
-        priority: safetyData.priority,
-        description: safetyData.description,
-        actions: safetyData.actions,
-      },
-      timestamp: formatIsoToIST(new Date()),
-    });
+      if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Gemini API call failed with status ${response.status}: ${errorText}`);
+          return JSON.stringify({
+              error: true,
+              message: `Gemini API call failed: ${response.status} - ${errorText}`,
+              data: null,
+          });
+      }
+
+      const result = await response.json();
+
+      // Check if the model responded with a function call
+      if (result.candidates && result.candidates.length > 0 &&
+          result.candidates[0].content && result.candidates[0].content.parts &&
+          result.candidates[0].content.parts.length > 0 &&
+          result.candidates[0].content.parts[0].functionCall) {
+
+          const functionCall = result.candidates[0].content.parts[0].functionCall;
+
+          // Validate that the model called the correct function
+          if (functionCall.name === SafetyNarrationTool.name) {
+              const safetyDataRaw = functionCall.args;
+
+              // 2. Validate the Gemini response (functionCall arguments) using Zod
+              try {
+                  const validatedSafetyData = SafetyNarrationSchema.parse(safetyDataRaw);
+                  console.log('Gemini response validated successfully:', validatedSafetyData);
+
+                  // Construct the response in the user's desired JSON string format
+                  return JSON.stringify({
+                      error: false,
+                      data: {
+                          // Map risk_level to priority, as per the updated schema and database expectation
+                          priority: validatedSafetyData.risk_level,
+                          description: validatedSafetyData.narrative_alert,
+                          // recommended_action is now directly an array from Gemini
+                          actions: validatedSafetyData.recommended_action,
+                          ...(validatedSafetyData.nearest_exit && { nearest_exit: validatedSafetyData.nearest_exit }),
+                      },
+                      // Use UTC ISO string for database consistency
+                      timestamp: new Date().toISOString(),
+                  });
+
+              } catch (validationError) {
+                  console.error('Gemini response Zod validation error:', validationError.errors);
+                  return JSON.stringify({
+                      error: true,
+                      message: `Invalid Gemini response schema: ${validationError.errors.map(e => e.message).join(', ')}`,
+                      data: null,
+                  });
+              }
+
+          } else {
+              console.error(`Unexpected function call name from Gemini: ${functionCall.name}`);
+              return JSON.stringify({
+                  error: true,
+                  message: `Unexpected function call from Gemini: ${functionCall.name}`,
+                  data: null,
+              });
+          }
+      } else {
+          console.error('Gemini response did not contain an expected function call:', JSON.stringify(result, null, 2));
+          // Provide more specific error if Gemini gives an error or safety feedback
+          if (result.promptFeedback && result.promptFeedback.blockReason) {
+              return JSON.stringify({
+                  error: true,
+                  message: `Gemini blocked the prompt: ${result.promptFeedback.blockReason}`,
+                  data: null,
+              });
+          }
+          if (result.candidates && result.candidates.length > 0 && result.candidates[0].finishReason) {
+              return JSON.stringify({
+                  error: true,
+                  message: `Gemini finished with reason: ${result.candidates[0].finishReason}`,
+                  data: null,
+              });
+          }
+          return JSON.stringify({
+              error: true,
+              message: 'Gemini did not respond with a function call as expected.',
+              data: null,
+          });
+      }
   } catch (error) {
-    console.error('Error analyzing child safety with Gemini:', error.message);
-    return JSON.stringify({
-      error: true,
-      message: 'Failed to analyze child safety.',
-      data: null,
-    });
+      clearTimeout(timeoutId); // Ensure timeout is cleared even on other errors
+      if (error.name === 'AbortError') {
+          console.error('Gemini API call timed out:', error);
+          return JSON.stringify({
+              error: true,
+              message: 'Gemini API call timed out. Please try again.',
+              data: null,
+          });
+      }
+      console.error('Error analyzing child safety:', error);
+      return JSON.stringify({
+          error: true,
+          message: `Failed to analyze child safety: ${error.message}`,
+          data: null,
+      });
   }
 }
+
+// Removed runExample() as it's for testing within the file, not for deployment.
+// If you want to test, you can uncomment and run it locally.
 
 export default analyzeChildSafety;
