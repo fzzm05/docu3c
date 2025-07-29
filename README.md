@@ -13,7 +13,6 @@
 - 🧠 **Safety Narration Microservice**: ML/LLM-backed narration with structured JSON output (including `risk_level`, `recommended_action`, `nearest_exit`, `priority`) using Gemini function-calling, with preloaded POI/crime/crowd data.
 - ⚙️ **Customizable Settings**: React-based `/settings` page with sliders for "risk sensitivity" and "alert frequency," persisted in a `parent_settings` table.
 - 🔒 **Security Compliance**: Adheres to GDPR, COPPA, and data-retention policies, documented in `security_checklist.md`.
-- 🧪 **Testing & Validation**: Backend APIs tested with Jest and Supertest; React frontend tested with Cypress; `validate.js` script simulates indoor/outdoor traces to compute MAE and alert precision/recall.
 
 ---
 
